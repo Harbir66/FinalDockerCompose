@@ -1,0 +1,106 @@
+version: '3.0'
+services:
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
+    restart:
+      always
+ 
+  authorization-database:
+    image: postgres
+    ports:
+      - "5442:5432"
+    restart:
+      always
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_USER: postgres
+      POSTGRES_DB: authorization
+    volumes:
+      - ./authorization-database:/var/lib/postgresql/data
+
+  backend-database:
+    image: postgres
+    ports:
+      - "5443:5432"
+    restart:
+      always
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_USER: postgres
+      POSTGRES_DB: backend
+    volumes:
+      - ./backend-database:/var/lib/postgresql/data
+
+  authorization-migration:
+    build: 
+      context: ../authorization-server
+      dockerfile: Dockerfile.migration
+    environment:
+      SECRET_KEY: 'ThisIsASecretKey'
+      PORT: 3010
+      EXPIRATION_TIME_REDIS: 3600 
+      CORS_ORIGIN: '*'
+      SALT_ROUNDS: 10
+      REDIS_HOST: 'redis'
+      REDIS_PORT: 6379
+      EXPIRATION_TIME_JWT: '1h'
+      DB_HOST: 'authorization-database'
+      DB_PORT: 5432
+    depends_on:
+      - redis
+      - authorization-database
+
+  authorization-server:
+    build: ../authorization-server
+    ports:
+      - "3010:3010"
+
+    environment:
+      SECRET_KEY: 'ThisIsASecretKey'
+      PORT: 3010
+      EXPIRATION_TIME_REDIS: 3600 
+      CORS_ORIGIN: '*'
+      SALT_ROUNDS: 10
+      REDIS_HOST: 'redis'
+      REDIS_PORT: 6379
+      EXPIRATION_TIME_JWT: '1h'
+      DB_HOST: 'authorization-database'
+      DB_PORT: 5432
+    depends_on:
+      - redis
+      - authorization-database
+      - authorization-migration
+
+  backend-migration:
+    build: 
+      context: ../backend
+      dockerfile: Dockerfile.migration
+    environment:
+      DB_HOST: 'backend-database'
+      DB_PORT: 5432
+      PORT: 3020
+      CORS_ORIGIN: '*'
+      AUTH_URL: 'authorization-server'
+      AUTH_PORT: 3010
+    depends_on:
+      - backend-database
+      - authorization-server
+
+  backend:
+    build: ../backend
+    ports:
+      - "3020:3020"
+
+    environment:
+      DB_HOST: 'backend-database'
+      DB_PORT: 5432
+      PORT: 3020
+      CORS_ORIGIN: '*'
+      AUTH_URL: 'authorization-server'
+      AUTH_PORT: 3010
+    depends_on:
+      - backend-database
+      - authorization-server
+      - backend-migration
